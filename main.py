@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QPushButton, QLabel, QDialog, QDialogButtonBox,
     QCheckBox, QFontDialog, QScrollArea, QFrame, QMessageBox
 )
-from PyQt6.QtCore import Qt, QByteArray
+from PyQt6.QtCore import Qt, QByteArray, pyqtSignal
 from PyQt6.QtGui import QFont, QKeyEvent, QAction, QIcon, QPixmap
 import qdarktheme
 from icon import ICON_PNG_BASE64
@@ -39,6 +39,16 @@ def get_app_path():
         return Path(sys.executable).parent
     else:
         return Path(__file__).parent
+
+
+class ClickableLabel(QLabel):
+    """A QLabel that emits a signal when clicked"""
+    clicked = pyqtSignal(str)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.text())
+        super().mousePressEvent(event)
 
 
 class SettingsDialog(QDialog):
@@ -77,6 +87,15 @@ class SettingsDialog(QDialog):
         font_layout.addStretch()
         layout.addLayout(font_layout)
         
+        hist_font_layout = QHBoxLayout()
+        hist_font_label = QLabel("History Font:")
+        self.hist_font_button = QPushButton("Choose History Font...")
+        self.hist_font_button.clicked.connect(self.choose_history_font)
+        hist_font_layout.addWidget(hist_font_label)
+        hist_font_layout.addWidget(self.hist_font_button)
+        hist_font_layout.addStretch()
+        layout.addLayout(hist_font_layout)
+        
         layout.addStretch()
         
         # Dialog buttons
@@ -90,6 +109,7 @@ class SettingsDialog(QDialog):
         
         self.setLayout(layout)
         self.selected_font = None
+        self.selected_hist_font = None
     
     def choose_font(self):
         """Open font dialog"""
@@ -97,10 +117,20 @@ class SettingsDialog(QDialog):
         font, ok = QFontDialog.getFont(current_font, self)
         if ok:
             self.selected_font = font
+            
+    def choose_history_font(self):
+        """Open font dialog for History"""
+        # Get current history font from parent's config or panel
+        current = self.parent().history_panel.current_font
+        font, ok = QFontDialog.getFont(current, self)
+        if ok:
+            self.selected_hist_font = font
 
 
 class HistoryPanel(QFrame):
     """History panel showing previous calculations"""
+    
+    entry_clicked = pyqtSignal(str)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -134,15 +164,28 @@ class HistoryPanel(QFrame):
         
         self.setLayout(layout)
         self.history_items = []
+        self.current_font = QFont("Consolas", 9)
     
     def add_entry(self, text):
         """Add a history entry"""
-        label = QLabel(text)
+        label = ClickableLabel(text) 
+        label.clicked.connect(self.entry_clicked.emit) # Connect to panel signal
+
         label.setWordWrap(True)
-        label.setStyleSheet("padding: 4px; background-color: #101010; border-radius: 3px;")
-        font = QFont()
-        font.setPointSize(9)
-        label.setFont(font)
+        label.setStyleSheet("""
+            QLabel { 
+                padding: 4px; 
+                background-color: #101010; 
+                border-radius: 3px; 
+            }
+            QLabel:hover { 
+                background-color: #2a2a2a; 
+                cursor: pointer;
+            }
+        """)
+        
+        # Apply the current configured font
+        label.setFont(self.current_font)
         
         # Insert at the top (before stretch)
         self.history_layout.insertWidget(0, label)
@@ -153,6 +196,12 @@ class HistoryPanel(QFrame):
             old_label = self.history_items.pop()
             self.history_layout.removeWidget(old_label)
             old_label.deleteLater()
+            
+    def set_history_font(self, font: QFont):
+        """Update font for all existing and future items"""
+        self.current_font = font
+        for label in self.history_items:
+            label.setFont(font)
     
     def clear_history(self):
         """Clear all history"""
@@ -338,6 +387,7 @@ class ProgrammerCalculator(QMainWindow):
         
         # Right side - history panel
         self.history_panel = HistoryPanel()
+        self.history_panel.entry_clicked.connect(self.copy_history_value)
         main_layout.addWidget(self.history_panel)
         
         central.setLayout(main_layout)
@@ -389,6 +439,48 @@ class ProgrammerCalculator(QMainWindow):
         
         self.update_display()
         self.update_hex_buttons()
+        
+    def copy_history_value(self, text):
+        """Extract result from history string and copy to clipboard in current format"""
+        if "=" not in text:
+            return
+            
+        # 1. Extract the result part (after the last '=')
+        # [cite_start]Format is "A op B = Result" [cite: 77]
+        result_str = text.split("=")[-1].strip()
+        
+        # 2. Parse the string into a raw integer
+        # We need to handle 0x, 0b prefixes and commas
+        clean_text = result_str.replace(",", "").replace(" ", "")
+        
+        try:
+            val = 0
+            # Try parsing based on prefixes first
+            if clean_text.lower().startswith("0x"):
+                val = int(clean_text, 16)
+            elif clean_text.lower().startswith("0b"):
+                val = int(clean_text, 2)
+            else:
+                # If no prefix, check if it has hex chars (A-F)
+                is_hex = any(c in "ABCDEFabcdef" for c in clean_text)
+                if is_hex:
+                    val = int(clean_text, 16)
+                else:
+                    # Default to decimal if no obvious hex indicators
+                    val = int(clean_text)
+            
+            # 3. Format the integer into the CURRENT active mode
+            # This ensures if history is "0xFF" but mode is DEC, we copy "255"
+            final_text = self.format_value(val)
+            
+            QApplication.clipboard().setText(final_text)
+            
+            # Optional: Flash status bar or small indicator that copy happened
+            # For now, just print to console for debugging
+            print(f"Copied history value: {val} -> {final_text}")
+            
+        except ValueError:
+            print(f"Failed to parse history value: {result_str}")
         
     def copy_to_clipboard(self):
         """Copy value to clipboard based on active state"""
@@ -468,10 +560,22 @@ class ProgrammerCalculator(QMainWindow):
             if font.fromString(font_str):
                 if hasattr(self, "display"):
                     self.display.setFont(font)
+        h_font_str = self.config.get("history_font")
+        if h_font_str:
+            if hasattr(self, "history_panel"):
+                font = QFont()
+                if font.fromString(h_font_str):
+                    self.history_panel.set_history_font(font)
+        else:
+            if hasattr(self, "history_panel"):
+                # Default default monospace for history if not set
+                default_h_font = QFont("Consolas", 9)
+                self.history_panel.set_history_font(default_h_font)
     
     def save_settings(self):
         """Save settings to JSON file"""
         self.config["display_font"] = self.display.font().toString()
+        self.config["history_font"] = self.history_panel.current_font.toString()
         self.config["hex_mode"] = self.hex_mode
         try:
             with open(self.config_file, 'w') as f:
@@ -490,6 +594,9 @@ class ProgrammerCalculator(QMainWindow):
             
             if dialog.selected_font:
                 self.display.setFont(dialog.selected_font)
+                
+            if dialog.selected_hist_font:
+                self.history_panel.set_history_font(dialog.selected_hist_font)
             
             self.update_display()
     
