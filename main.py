@@ -274,6 +274,7 @@ class ProgrammerCalculator(QMainWindow):
         # Repeat operation state
         self.last_operation = None
         self.last_operand = None
+        self.shift_btn: QPushButton = None
         
         self.hex_mode = False  # False = decimal, True = hex
         self.new_number = True
@@ -387,6 +388,9 @@ class ProgrammerCalculator(QMainWindow):
                 }
             """)
             
+            if text == "<<":
+                self.shift_btn = btn  # Save reference for later
+            
             if isinstance(action, int):
                 btn.clicked.connect(lambda checked, a=action: self.number_pressed(a))
             elif action in ["A", "B", "C", "D", "E", "F"]:
@@ -418,6 +422,16 @@ class ProgrammerCalculator(QMainWindow):
                 btn.setStyleSheet(btn.styleSheet() + "QPushButton { background-color: #3b3020; }")
             
             button_layout.addWidget(btn, row, col)
+        
+        def handle_lshift():
+            if self.shift_btn.text() == "<<":
+                self.operation_pressed('lshift')
+            elif self.shift_btn.text() == ">>":
+                self.operation_pressed('rshift')
+                
+        # Remove existing connections
+        self.shift_btn.clicked.disconnect()
+        self.shift_btn.clicked.connect(handle_lshift)
         
         self.calc_layout.addLayout(button_layout)
         
@@ -737,6 +751,15 @@ class ProgrammerCalculator(QMainWindow):
         text = event.text().upper()
         modifiers = event.modifiers()
         
+        if event.key() == Qt.Key.Key_Shift:
+            if hasattr(self, 'shift_btn'):
+                self.shift_btn.setText(">>")
+                
+        if event.text() == "<":
+            self.operation_pressed('lshift')
+        elif event.text() == ">":
+            self.operation_pressed('rshift')
+        
         # --- NEW: Copy / Paste Shortcuts  ---
         # Check Ctrl+C (Copy)
         if (key == Qt.Key.Key_C and modifiers == Qt.KeyboardModifier.ControlModifier):
@@ -801,6 +824,20 @@ class ProgrammerCalculator(QMainWindow):
         
         else:
             super().keyPressEvent(event)
+            
+    def keyReleaseEvent(self, event: QKeyEvent):
+        # Revert button label when Shift is released
+        if event.key() == Qt.Key.Key_Shift:
+            if hasattr(self, 'shift_btn'):
+                self.shift_btn.setText("<<")
+        super().keyReleaseEvent(event)
+        
+    def changeEvent(self, event):
+        # Revert button label if app loses focus while shift is held
+        if event.type() == event.Type.ActivationChange:
+            if not self.isActiveWindow() and hasattr(self, 'shift_btn'):
+                self.shift_btn.setText("<<")
+        super().changeEvent(event)
     
     def switch_mode(self, to_hex):
         """Switch between decimal and hex mode"""
@@ -869,7 +906,7 @@ class ProgrammerCalculator(QMainWindow):
         # Update Pending Operation Label
         op_symbols = {
             "add": "+", "sub": "-", "mul": "*", "div": "/",
-            "mod": "%", "and": "&", "or": "|", "xor": "^", "lshift": "<<"
+            "mod": "%", "and": "&", "or": "|", "xor": "^", "lshift": "<<", "rshift": ">>"
         }
         self.op_label.setText(op_symbols.get(op, op))
     
@@ -917,11 +954,13 @@ class ProgrammerCalculator(QMainWindow):
                 result = a ^ b
             elif op == "lshift":
                 result = a << b
+            elif op == "rshift":
+                result = a >> b
             
             # Add to history
             op_symbols = {
                 "add": "+", "sub": "-", "mul": "*", "div": "/",
-                "mod": "%", "and": "&", "or": "|", "xor": "^", "lshift": "<<"
+                "mod": "%", "and": "&", "or": "|", "xor": "^", "lshift": "<<", "rshift": ">>"
             }
             op_text = op_symbols.get(op, op)
             self.add_history(
