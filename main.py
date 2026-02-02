@@ -13,10 +13,11 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QPushButton, QLabel, QDialog, QDialogButtonBox,
-    QCheckBox, QFontDialog, QScrollArea, QFrame, QMessageBox
+    QCheckBox, QFontDialog, QScrollArea, QFrame, QMessageBox,
+    QGraphicsColorizeEffect
 )
-from PyQt6.QtCore import Qt, QByteArray, pyqtSignal
-from PyQt6.QtGui import QFont, QKeyEvent, QAction, QIcon, QPixmap
+from PyQt6.QtCore import Qt, QByteArray, pyqtSignal, QPropertyAnimation, QSequentialAnimationGroup, QPauseAnimation
+from PyQt6.QtGui import QFont, QKeyEvent, QAction, QIcon, QPixmap, QColor
 import qdarktheme
 from icon import ICON_PNG_BASE64
 
@@ -44,11 +45,45 @@ def get_app_path():
 class ClickableLabel(QLabel):
     """A QLabel that emits a signal when clicked"""
     clicked = pyqtSignal(str)
+    
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        # Keep your existing styling here...
+        self.setStyleSheet("padding: 4px; background-color: #101010; border-radius: 3px;")
+        
+        # Setup the color effect for flashing
+        self.effect = QGraphicsColorizeEffect(self)
+        self.setGraphicsEffect(self.effect)
+        self.effect.setStrength(0) # Invisible by default
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.text())
         super().mousePressEvent(event)
+        self.flash()
+        
+    def flash(self):
+        # Set the flash color (Green for success/copy)
+        self.effect.setColor(QColor("#4CAF50")) 
+        
+        # Create the "Fade In" animation
+        self.anim_in = QPropertyAnimation(self.effect, b"strength")
+        self.anim_in.setDuration(50)
+        self.anim_in.setStartValue(0)
+        self.anim_in.setEndValue(0.8)
+
+        # Create the "Fade Out" animation
+        self.anim_out = QPropertyAnimation(self.effect, b"strength")
+        self.anim_out.setDuration(500)
+        self.anim_out.setStartValue(0.8)
+        self.anim_out.setEndValue(0)
+
+        # Sequence: Flash on quickly, pause for a split second, then fade out
+        self.group = QSequentialAnimationGroup()
+        self.group.addAnimation(self.anim_in)
+        self.group.addPause(100)
+        self.group.addAnimation(self.anim_out)
+        self.group.start()
 
 
 class SettingsDialog(QDialog):
@@ -180,7 +215,6 @@ class HistoryPanel(QFrame):
             }
             QLabel:hover { 
                 background-color: #2a2a2a; 
-                cursor: pointer;
             }
         """)
         
@@ -260,14 +294,14 @@ class ProgrammerCalculator(QMainWindow):
         main_layout.setSpacing(10)
         
         # Left side - calculator
-        calc_layout = QVBoxLayout()
-        calc_layout.setSpacing(8)
+        self.calc_layout = QVBoxLayout()
+        self.calc_layout.setSpacing(8)
         
         # Display area
-        display_frame = QFrame()
-        display_frame.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Sunken)
-        display_layout = QVBoxLayout()
-        display_layout.setContentsMargins(5, 5, 5, 5)
+        self.display_frame = QFrame()
+        self.display_frame.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Sunken)
+        self.display_layout = QVBoxLayout()
+        self.display_layout.setContentsMargins(5, 5, 5, 5)
         
         # Top info row (Mode + Pending Op)
         info_layout = QHBoxLayout()
@@ -285,13 +319,17 @@ class ProgrammerCalculator(QMainWindow):
         
         # Pending Operation Indicator
         self.op_label = QLabel("")
-        op_font = QFont("Consolas", 20)
+        op_font = QFont("Tahoma", 14)
         op_font.setBold(True)
         self.op_label.setFont(op_font)
         self.op_label.setStyleSheet("color: #ffa500;") # Orange for visibility
+        self.op_label.setMaximumHeight(22)
+        self.op_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         info_layout.addWidget(self.op_label)
         
-        display_layout.addLayout(info_layout)
+        self.display_layout.addLayout(info_layout)
+        
+        self.display_effect = None
         
         # Main display
         self.display = QLabel("0")
@@ -299,7 +337,7 @@ class ProgrammerCalculator(QMainWindow):
         display_font = QFont("Consolas", 24)
         self.display.setFont(display_font)
         self.display.setMinimumHeight(60)
-        display_layout.addWidget(self.display)
+        self.display_layout.addWidget(self.display)
         
         # Alternative representations
         self.alt_display = QLabel("HEX: 0x0  BIN: 0b0")
@@ -307,10 +345,10 @@ class ProgrammerCalculator(QMainWindow):
         self.alt_display.setFont(alt_font)
         self.alt_display.setStyleSheet("padding: 5px; background-color: #f5f5f5; color: #666;")
         self.alt_display.setMaximumHeight(20)
-        display_layout.addWidget(self.alt_display)
+        self.display_layout.addWidget(self.alt_display)
         
-        display_frame.setLayout(display_layout)
-        calc_layout.addWidget(display_frame)
+        self.display_frame.setLayout(self.display_layout)
+        self.calc_layout.addWidget(self.display_frame)
         
         # Button grid
         button_layout = QGridLayout()
@@ -381,9 +419,9 @@ class ProgrammerCalculator(QMainWindow):
             
             button_layout.addWidget(btn, row, col)
         
-        calc_layout.addLayout(button_layout)
+        self.calc_layout.addLayout(button_layout)
         
-        main_layout.addLayout(calc_layout)
+        main_layout.addLayout(self.calc_layout)
         
         # Right side - history panel
         self.history_panel = HistoryPanel()
@@ -439,6 +477,31 @@ class ProgrammerCalculator(QMainWindow):
         
         self.update_display()
         self.update_hex_buttons()
+        
+    def flash_display(self, color_hex):
+        """Creates a brief color flash on the main display."""
+        # Create effect if it doesn't exist, or reuse
+        if not hasattr(self, 'display_effect') or self.display_effect is None:
+            self.display_effect = QGraphicsColorizeEffect(self.display_frame)
+            self.display_frame.setGraphicsEffect(self.display_effect)
+        
+        self.display_effect.setColor(QColor(color_hex))
+        
+        # Animation: Quick fade in, then fade out
+        self.anim_in = QPropertyAnimation(self.display_effect, b"strength")
+        self.anim_in.setDuration(50)
+        self.anim_in.setStartValue(0)
+        self.anim_in.setEndValue(0.7)
+
+        self.anim_out = QPropertyAnimation(self.display_effect, b"strength")
+        self.anim_out.setDuration(400)
+        self.anim_out.setStartValue(0.7)
+        self.anim_out.setEndValue(0)
+
+        self.flash_group = QSequentialAnimationGroup()
+        self.flash_group.addAnimation(self.anim_in)
+        self.flash_group.addAnimation(self.anim_out)
+        self.flash_group.start()
         
     def copy_history_value(self, text):
         """Extract result from history string and copy to clipboard in current format"""
@@ -501,6 +564,7 @@ class ProgrammerCalculator(QMainWindow):
 
         # Format and copy to clipboard
         clipboard.setText(self.format_value(val_to_copy))
+        self.flash_display("#68AF4C") # Success Green
 
     def paste_from_clipboard(self):
         """Paste value from clipboard"""
@@ -536,6 +600,7 @@ class ProgrammerCalculator(QMainWindow):
             self.current_value = new_val
             self.new_number = False  # Treat as if user typed it
             self.update_display()
+            self.flash_display("#D39E2C") # Yellow/Orange
             
         except ValueError:
             # Silently ignore invalid pastes (or print to console)
@@ -630,6 +695,7 @@ class ProgrammerCalculator(QMainWindow):
         self.memory_value = self.current_value
         self.new_number = True # Generally start new number after store
         self.update_mode_label()
+        self.flash_display("#3D8CCC") # Blue-ish
     
     def memory_recall(self):
         """Recall memory"""
@@ -637,6 +703,7 @@ class ProgrammerCalculator(QMainWindow):
             self.current_value = self.memory_value
             self.new_number = False # Allow editing? Usually recall sets the number.
             self.update_display()
+            self.flash_display("#422775") # Purple-ish
             
     def memory_add(self):
         """Add current to memory"""
