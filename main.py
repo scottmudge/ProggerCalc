@@ -2,6 +2,7 @@
 """
 Programmer's Calculator - A polished calculator with decimal/hex conversion
 Updated with JSON config, pending op display, smart ESC, and Memory functions.
+Enhanced with 3D buttons, gradient background, and button animations.
 """
 
 import sys
@@ -17,7 +18,7 @@ from PyQt6.QtWidgets import (
     QGraphicsColorizeEffect
 )
 from PyQt6.QtCore import Qt, QByteArray, pyqtSignal, QPropertyAnimation, QSequentialAnimationGroup, QPauseAnimation
-from PyQt6.QtGui import QFont, QKeyEvent, QAction, QIcon, QPixmap, QColor
+from PyQt6.QtGui import QFont, QKeyEvent, QAction, QIcon, QPixmap, QColor, QPalette, QLinearGradient
 import qdarktheme
 from icon import ICON_PNG_BASE64
 
@@ -84,6 +85,44 @@ class ClickableLabel(QLabel):
         self.group.addPause(100)
         self.group.addAnimation(self.anim_out)
         self.group.start()
+
+
+class AnimatedButton(QPushButton):
+    """A QPushButton with a color flash animation when pressed"""
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Setup the color effect for flashing
+        self.effect = QGraphicsColorizeEffect(self)
+        self.setGraphicsEffect(self.effect)
+        self.effect.setStrength(0)
+    
+    def flash(self):
+        """Flash the button with a light gray color"""
+        self.effect.setColor(QColor("#CCCCCC"))  # Light gray
+        
+        # Create the "Fade In" animation
+        self.anim_in = QPropertyAnimation(self.effect, b"strength")
+        self.anim_in.setDuration(50)
+        self.anim_in.setStartValue(0)
+        self.anim_in.setEndValue(0.6)
+
+        # Create the "Fade Out" animation
+        self.anim_out = QPropertyAnimation(self.effect, b"strength")
+        self.anim_out.setDuration(300)
+        self.anim_out.setStartValue(0.6)
+        self.anim_out.setEndValue(0)
+
+        # Sequence: Flash on quickly, then fade out
+        self.group = QSequentialAnimationGroup()
+        self.group.addAnimation(self.anim_in)
+        self.group.addAnimation(self.anim_out)
+        self.group.start()
+    
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        self.flash()
 
 
 class SettingsDialog(QDialog):
@@ -274,7 +313,7 @@ class ProgrammerCalculator(QMainWindow):
         # Repeat operation state
         self.last_operation = None
         self.last_operand = None
-        self.shift_btn: QPushButton = None
+        self.shift_btn: AnimatedButton = None
         
         self.hex_mode = False  # False = decimal, True = hex
         self.new_number = True
@@ -291,6 +330,16 @@ class ProgrammerCalculator(QMainWindow):
         # Central widget and main layout
         central = QWidget()
         self.setCentralWidget(central)
+        
+        # Set gradient background on central widget
+        central.setAutoFillBackground(True)
+        palette = central.palette()
+        gradient = QLinearGradient(0, 0, 0, 600)
+        gradient.setColorAt(0.0, QColor("#1a1a2e"))
+        gradient.setColorAt(1.0, QColor("#0f0f1e"))
+        palette.setBrush(QPalette.ColorRole.Window, gradient)
+        central.setPalette(palette)
+        
         main_layout = QHBoxLayout()
         main_layout.setSpacing(10)
         
@@ -355,8 +404,34 @@ class ProgrammerCalculator(QMainWindow):
         button_layout = QGridLayout()
         button_layout.setSpacing(4)
         
+        # 3D Button styling
+        button_3d_style = """
+            QPushButton {
+                border: 1px solid #00000066;
+                border-radius: 5px;
+                font-size: 12pt;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #4a4a4a, stop:0.5 #3a3a3a, stop:1 #2a2a2a);
+                color: #ffffff;
+                padding: 2px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5a5a5a, stop:0.5 #4a4a4a, stop:1 #3a3a3a);
+            }
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #2a2a2a, stop:0.5 #3a3a3a, stop:1 #4a4a4a);
+                border: 1px solid #666666;
+            }
+            QPushButton:disabled {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #333333, stop:0.5 #282828, stop:1 #1e1e1e);
+                color: #666666;
+            }
+        """
+        
         # Button definitions (text, row, col, operation/value)
-        # Shifted other rows down by 1
         buttons = [
             # Row 0 - Memory
             ("MS", 0, 0, "mem_store"), ("MR", 0, 1, "mem_recall"), ("M+", 0, 2, "mem_add"), ("M-", 0, 3, "mem_sub"),
@@ -377,49 +452,133 @@ class ProgrammerCalculator(QMainWindow):
         ]
         
         self.buttons = {}
+        self.button_map = {}  # Map actions to buttons for keyboard flash
+        
         for text, row, col, action in buttons:
-            btn = QPushButton(text)
+            btn = AnimatedButton(text)
             btn.setMinimumSize(50, 40)
-            btn.setStyleSheet("""
-                QPushButton {
-                    border: 1px solid #a0a0a0;
-                    border-radius: 3px;
-                    font-size: 12pt;
-                }
-            """)
+            btn.setStyleSheet(button_3d_style)
             
             if text == "<<":
                 self.shift_btn = btn  # Save reference for later
             
             if isinstance(action, int):
                 btn.clicked.connect(lambda checked, a=action: self.number_pressed(a))
+                self.button_map[str(action)] = btn
             elif action in ["A", "B", "C", "D", "E", "F"]:
                 btn.clicked.connect(lambda checked, a=action: self.hex_digit_pressed(a))
                 self.buttons[action] = btn
+                self.button_map[action] = btn
             elif action in ["add", "sub", "mul", "div", "mod", "and", "or", "xor", "lshift"]:
                 btn.clicked.connect(lambda checked, a=action: self.operation_pressed(a))
+                self.button_map[action] = btn
                 if action in ["add", "sub", "mul", "div"]:
-                    btn.setStyleSheet(btn.styleSheet() + "QPushButton { background-color: #243036; }")
+                    btn.setStyleSheet(button_3d_style + """
+                        QPushButton {
+                            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #3a4a56, stop:0.5 #2a3a46, stop:1 #1a2a36);
+                        }
+                        QPushButton:hover {
+                            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #4a5a66, stop:0.5 #3a4a56, stop:1 #2a3a46);
+                        }
+                        QPushButton:pressed {
+                            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #1a2a36, stop:0.5 #2a3a46, stop:1 #3a4a56);
+                        }
+                    """)
             elif action == "equals":
                 btn.clicked.connect(self.equals_pressed)
-                btn.setStyleSheet(btn.styleSheet() + "QPushButton { background-color: #1f2b27; font-weight: bold; }")
+                self.button_map["equals"] = btn
+                btn.setStyleSheet(button_3d_style + """
+                    QPushButton {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #2f4a37, stop:0.5 #1f3a27, stop:1 #0f2a17);
+                        font-weight: bold;
+                    }
+                    QPushButton:hover {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #3f5a47, stop:0.5 #2f4a37, stop:1 #1f3a27);
+                    }
+                    QPushButton:pressed {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #0f2a17, stop:0.5 #1f3a27, stop:1 #2f4a37);
+                    }
+                """)
             elif action == "clear":
                 btn.clicked.connect(self.clear_all)
+                self.button_map["clear"] = btn
             elif action == "clear_entry":
                 btn.clicked.connect(self.handle_escape)
-            
+                self.button_map["clear_entry"] = btn
             elif action == "mem_store":
                 btn.clicked.connect(self.memory_store)
-                btn.setStyleSheet(btn.styleSheet() + "QPushButton { background-color: #3b3020; }")
+                self.button_map["mem_store"] = btn
+                btn.setStyleSheet(button_3d_style + """
+                    QPushButton {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #5a4a30, stop:0.5 #4a3a20, stop:1 #3a2a10);
+                    }
+                    QPushButton:hover {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #6a5a40, stop:0.5 #5a4a30, stop:1 #4a3a20);
+                    }
+                    QPushButton:pressed {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #3a2a10, stop:0.5 #4a3a20, stop:1 #5a4a30);
+                    }
+                """)
             elif action == "mem_recall":
                 btn.clicked.connect(self.memory_recall)
-                btn.setStyleSheet(btn.styleSheet() + "QPushButton { background-color: #3b3020; }")
+                self.button_map["mem_recall"] = btn
+                btn.setStyleSheet(button_3d_style + """
+                    QPushButton {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #5a4a30, stop:0.5 #4a3a20, stop:1 #3a2a10);
+                    }
+                    QPushButton:hover {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #6a5a40, stop:0.5 #5a4a30, stop:1 #4a3a20);
+                    }
+                    QPushButton:pressed {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #3a2a10, stop:0.5 #4a3a20, stop:1 #5a4a30);
+                    }
+                """)
             elif action == "mem_add":
                 btn.clicked.connect(self.memory_add)
-                btn.setStyleSheet(btn.styleSheet() + "QPushButton { background-color: #3b3020; }")
+                self.button_map["mem_add"] = btn
+                btn.setStyleSheet(button_3d_style + """
+                    QPushButton {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #5a4a30, stop:0.5 #4a3a20, stop:1 #3a2a10);
+                    }
+                    QPushButton:hover {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #6a5a40, stop:0.5 #5a4a30, stop:1 #4a3a20);
+                    }
+                    QPushButton:pressed {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #3a2a10, stop:0.5 #4a3a20, stop:1 #5a4a30);
+                    }
+                """)
             elif action == "mem_sub":
                 btn.clicked.connect(self.memory_sub)
-                btn.setStyleSheet(btn.styleSheet() + "QPushButton { background-color: #3b3020; }")
+                self.button_map["mem_sub"] = btn
+                btn.setStyleSheet(button_3d_style + """
+                    QPushButton {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #5a4a30, stop:0.5 #4a3a20, stop:1 #3a2a10);
+                    }
+                    QPushButton:hover {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #6a5a40, stop:0.5 #5a4a30, stop:1 #4a3a20);
+                    }
+                    QPushButton:pressed {
+                        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                            stop:0 #3a2a10, stop:0.5 #4a3a20, stop:1 #5a4a30);
+                    }
+                """)
             
             button_layout.addWidget(btn, row, col)
         
@@ -432,6 +591,7 @@ class ProgrammerCalculator(QMainWindow):
         # Remove existing connections
         self.shift_btn.clicked.disconnect()
         self.shift_btn.clicked.connect(handle_lshift)
+        self.button_map["rshift"] = self.shift_btn
         
         self.calc_layout.addLayout(button_layout)
         
@@ -480,7 +640,7 @@ class ProgrammerCalculator(QMainWindow):
         
         # Set window properties
         size_w = 700
-        size_h = 580 # Increased slightly for new row
+        size_h = 580
         self.setMinimumSize(size_w, size_h)
         self.setMaximumSize(size_w, size_h)
         self.resize(size_w, size_h)
@@ -491,6 +651,7 @@ class ProgrammerCalculator(QMainWindow):
         
         self.update_display()
         self.update_hex_buttons()
+        self.update_mode_label()
         
     def flash_display(self, color_hex):
         """Creates a brief color flash on the main display."""
@@ -523,7 +684,6 @@ class ProgrammerCalculator(QMainWindow):
             return
             
         # 1. Extract the result part (after the last '=')
-        # [cite_start]Format is "A op B = Result" [cite: 77]
         result_str = text.split("=")[-1].strip()
         
         # 2. Parse the string into a raw integer
@@ -547,13 +707,10 @@ class ProgrammerCalculator(QMainWindow):
                     val = int(clean_text)
             
             # 3. Format the integer into the CURRENT active mode
-            # This ensures if history is "0xFF" but mode is DEC, we copy "255"
             final_text = self.format_value(val)
             
             QApplication.clipboard().setText(final_text)
             
-            # Optional: Flash status bar or small indicator that copy happened
-            # For now, just print to console for debugging
             print(f"Copied history value: {val} -> {final_text}")
             
         except ValueError:
@@ -610,14 +767,12 @@ class ProgrammerCalculator(QMainWindow):
                     new_val = int(clean_text)
 
             # Logic: Overwrite current value
-            # Whether op is pending or not, we overwrite the 'active' input slot
             self.current_value = new_val
-            self.new_number = False  # Treat as if user typed it
+            self.new_number = False
             self.update_display()
             self.flash_display("#D39E2C") # Yellow/Orange
             
         except ValueError:
-            # Silently ignore invalid pastes (or print to console)
             print(f"Could not paste: {text}")
     
     def load_settings(self):
@@ -647,9 +802,11 @@ class ProgrammerCalculator(QMainWindow):
                     self.history_panel.set_history_font(font)
         else:
             if hasattr(self, "history_panel"):
-                # Default default monospace for history if not set
                 default_h_font = QFont("Consolas", 9)
                 self.history_panel.set_history_font(default_h_font)
+        self.update_display()
+        self.update_mode_label()
+        self.update_hex_buttons()
     
     def save_settings(self):
         """Save settings to JSON file"""
@@ -707,7 +864,7 @@ class ProgrammerCalculator(QMainWindow):
     def memory_store(self):
         """Store current value to memory"""
         self.memory_value = self.current_value
-        self.new_number = True # Generally start new number after store
+        self.new_number = True
         self.update_mode_label()
         self.flash_display("#3D8CCC") # Blue-ish
     
@@ -715,7 +872,7 @@ class ProgrammerCalculator(QMainWindow):
         """Recall memory"""
         if self.operation is not None or self.current_value == 0:
             self.current_value = self.memory_value
-            self.new_number = False # Allow editing? Usually recall sets the number.
+            self.new_number = False
             self.update_display()
             self.flash_display("#422775") # Purple-ish
             
@@ -743,7 +900,11 @@ class ProgrammerCalculator(QMainWindow):
             self.memory_value = 0
             self.clear_press_count = 0
             self.update_mode_label()
-            # Optional: Visual indication that memory is cleared could go here
+    
+    def flash_button_for_key(self, action_key):
+        """Flash a button when its keyboard shortcut is used"""
+        if action_key in self.button_map:
+            self.button_map[action_key].flash()
     
     def keyPressEvent(self, event: QKeyEvent):
         """Handle keyboard input"""
@@ -757,34 +918,36 @@ class ProgrammerCalculator(QMainWindow):
                 
         if event.text() == "<":
             self.operation_pressed('lshift')
+            self.flash_button_for_key('lshift')
         elif event.text() == ">":
             self.operation_pressed('rshift')
+            self.flash_button_for_key('rshift')
         
-        # --- NEW: Copy / Paste Shortcuts  ---
-        # Check Ctrl+C (Copy)
+        # Copy / Paste Shortcuts
         if (key == Qt.Key.Key_C and modifiers == Qt.KeyboardModifier.ControlModifier):
             self.copy_to_clipboard()
-            return  # RETURN intentionally to prevent 'C' from typing in Hex mode
+            return
 
-        # Check Ctrl+V (Paste)
         if (key == Qt.Key.Key_V and modifiers == Qt.KeyboardModifier.ControlModifier):
             self.paste_from_clipboard()
             return
-        # ---------------------------------------------
 
         # Number keys (including numpad)
         if key in [Qt.Key.Key_0, Qt.Key.Key_1, Qt.Key.Key_2, Qt.Key.Key_3, Qt.Key.Key_4,
                    Qt.Key.Key_5, Qt.Key.Key_6, Qt.Key.Key_7, Qt.Key.Key_8, Qt.Key.Key_9]:
             num = int(text) if text.isdigit() else key - Qt.Key.Key_0
             self.number_pressed(num)
+            self.flash_button_for_key(str(num))
         
         # Hex digits A-F
         elif text in "ABCDEF" and self.hex_mode:
             self.hex_digit_pressed(text)
+            self.flash_button_for_key(text)
         
-        # Mode switching (C key without Ctrl)
+        # Mode switching
         elif text == 'C' and not self.hex_mode:
-            self.clear_all() # C key maps to clear_all
+            self.clear_all()
+            self.flash_button_for_key("clear")
         elif text == 'X':
             if self.hex_mode:
                 self.switch_mode(False)
@@ -793,34 +956,46 @@ class ProgrammerCalculator(QMainWindow):
 
         elif text == 'R':
             self.memory_recall()
+            self.flash_button_for_key("mem_recall")
         elif text == 'P':
             self.memory_store()
+            self.flash_button_for_key("mem_store")
         
         # Operations
         elif key in [Qt.Key.Key_Plus, Qt.Key.Key_Equal] and event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
             self.operation_pressed("add")
+            self.flash_button_for_key("add")
         elif key == Qt.Key.Key_Plus:
             self.operation_pressed("add")
+            self.flash_button_for_key("add")
         elif key == Qt.Key.Key_Minus:
             self.operation_pressed("sub")
+            self.flash_button_for_key("sub")
         elif key in [Qt.Key.Key_Asterisk, Qt.Key.Key_8] and event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
             self.operation_pressed("mul")
+            self.flash_button_for_key("mul")
         elif key == Qt.Key.Key_Asterisk:
             self.operation_pressed("mul")
+            self.flash_button_for_key("mul")
         elif key == Qt.Key.Key_Slash:
             self.operation_pressed("div")
+            self.flash_button_for_key("div")
         elif key in [Qt.Key.Key_Percent, Qt.Key.Key_5] and event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
             self.operation_pressed("mod")
+            self.flash_button_for_key("mod")
         
         # Equals
         elif key in [Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Equal]:
             self.equals_pressed()
+            self.flash_button_for_key("equals")
         
         # Clear / Smart ESC
         elif key == Qt.Key.Key_Escape:
             self.handle_escape()
+            self.flash_button_for_key("clear_entry")
         elif key == Qt.Key.Key_Delete:
             self.clear_all()
+            self.flash_button_for_key("clear")
         
         else:
             super().keyPressEvent(event)
@@ -850,6 +1025,8 @@ class ProgrammerCalculator(QMainWindow):
         self.update_hex_buttons()
         
     def update_mode_label(self):
+        if not hasattr(self, "mode_label"):
+            return
         _str = "HEX" if self.hex_mode else "DEC"
         if self.memory_value != 0:
             _str += f" (M)"
@@ -857,6 +1034,8 @@ class ProgrammerCalculator(QMainWindow):
     
     def update_hex_buttons(self):
         """Enable/disable hex buttons based on mode"""
+        if not hasattr(self, "buttons"):
+            return
         enabled = self.hex_mode
         for letter in "ABCDEF":
             if letter in self.buttons:
@@ -968,8 +1147,8 @@ class ProgrammerCalculator(QMainWindow):
             )
             
             self.current_value = result
-            self.operation = None # Clear pending op
-            self.op_label.setText("") # Clear pending UI symbol
+            self.operation = None
+            self.op_label.setText("")
             self.new_number = True
             self.update_display()
             
@@ -979,7 +1158,7 @@ class ProgrammerCalculator(QMainWindow):
     
     def handle_escape(self):
         """Smart ESC: Clears pending Op first, then Number."""
-        self.check_clear_counter() # Check if memory should be cleared
+        self.check_clear_counter()
 
         if self.operation is not None:
             # First press: Cancel pending operation
@@ -997,7 +1176,7 @@ class ProgrammerCalculator(QMainWindow):
     
     def clear_all(self):
         """Clear all"""
-        self.check_clear_counter() # Check if memory should be cleared
+        self.check_clear_counter()
 
         self.current_value = 0
         self.stored_value = 0
@@ -1025,6 +1204,8 @@ class ProgrammerCalculator(QMainWindow):
     
     def update_display(self):
         """Update the display labels"""
+        if not hasattr(self, "display") or not hasattr(self, "alt_display"):
+            return
         # Main display
         self.display.setText(self.format_value(self.current_value))
         
@@ -1055,7 +1236,7 @@ class ProgrammerCalculator(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    qdarktheme.setup_theme()
+    qdarktheme.setup_theme(theme="dark", custom_colors={"background": "#1e1e1e", "foreground": "#c5c5c5"})
     icon = icon_from_base64_png(ICON_PNG_BASE64)
     app.setWindowIcon(icon)
     
