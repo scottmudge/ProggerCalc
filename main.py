@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QPushButton, QLabel, QDialog, QDialogButtonBox,
     QCheckBox, QFontDialog, QScrollArea, QFrame, QMessageBox,
-    QGraphicsColorizeEffect
+    QGraphicsColorizeEffect, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QByteArray, pyqtSignal, QPropertyAnimation, QSequentialAnimationGroup, QPauseAnimation
 from PyQt6.QtGui import QFont, QKeyEvent, QAction, QIcon, QPixmap, QColor, QPalette, QLinearGradient
@@ -25,6 +25,14 @@ from icon import ICON_PNG_BASE64
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
     "proggercalc.proggercalc"
 )
+
+# Global constants for UI customization
+BUTTON_MIN_WIDTH = 30  # Minimum button width
+BUTTON_MIN_HEIGHT = 25  # Minimum button height
+GRADIENT_INTENSITY = 0.65  # Gradient intensity multiplier (0.0 to 2.0, where 1.0 is default)
+BUTTON_HISTORY_RATIO = 0.385  # Ratio of width for buttons vs history (0.0 to 1.0, where 0.5 is equal split)
+WINDOW_MARGINS = 5  # Margin between window border and contents (in pixels)
+LAYOUT_SPACING = 4  # Spacing between widgets and layouts (in pixels)
 
 def icon_from_base64_png(b64: str) -> QIcon:
     raw = base64.b64decode(b64)
@@ -41,6 +49,29 @@ def get_app_path():
         return Path(sys.executable).parent
     else:
         return Path(__file__).parent
+
+
+def adjust_gradient_color(color_hex, intensity):
+    """Adjust a hex color based on gradient intensity"""
+    color = QColor(color_hex)
+    h, s, v, a = color.getHsv()
+    
+    # Adjust value (brightness) based on intensity
+    # intensity < 1.0 makes gradients flatter
+    # intensity > 1.0 makes gradients more pronounced
+    if intensity < 1.0:
+        # Move toward middle value (128)
+        v = int(v + (128 - v) * (1.0 - intensity))
+    else:
+        # Enhance the existing value
+        if v > 128:
+            v = min(255, int(v + (255 - v) * (intensity - 1.0) * 0.5))
+        else:
+            v = max(0, int(v - v * (intensity - 1.0) * 0.5))
+    
+    adjusted = QColor()
+    adjusted.setHsv(h, s, v, a)
+    return adjusted.name()
 
 
 class ClickableLabel(QLabel):
@@ -209,8 +240,7 @@ class HistoryPanel(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Sunken)
-        self.setMaximumWidth(320)
-        self.setMinimumWidth(320)
+        # Remove fixed width constraints - now controlled by layout stretch
         
         layout = QVBoxLayout()
         layout.setContentsMargins(8, 8, 8, 8)
@@ -340,14 +370,12 @@ class ProgrammerCalculator(QMainWindow):
         palette.setBrush(QPalette.ColorRole.Window, gradient)
         central.setPalette(palette)
         
-        main_layout = QHBoxLayout()
-        main_layout.setSpacing(10)
+        # Main vertical layout
+        main_layout = QVBoxLayout()
+        main_layout.setSpacing(LAYOUT_SPACING)
+        main_layout.setContentsMargins(WINDOW_MARGINS, WINDOW_MARGINS, WINDOW_MARGINS, WINDOW_MARGINS)
         
-        # Left side - calculator
-        self.calc_layout = QVBoxLayout()
-        self.calc_layout.setSpacing(8)
-        
-        # Display area
+        # Display area (full width at top)
         self.display_frame = QFrame()
         self.display_frame.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Sunken)
         self.display_layout = QVBoxLayout()
@@ -398,37 +426,54 @@ class ProgrammerCalculator(QMainWindow):
         self.display_layout.addWidget(self.alt_display)
         
         self.display_frame.setLayout(self.display_layout)
-        self.calc_layout.addWidget(self.display_frame)
+        main_layout.addWidget(self.display_frame)
+        
+        # Horizontal layout for buttons and history (side by side)
+        bottom_layout = QHBoxLayout()
+        bottom_layout.setSpacing(LAYOUT_SPACING)
+        
+        # Left side - calculator buttons
+        self.calc_layout = QVBoxLayout()
+        self.calc_layout.setSpacing(LAYOUT_SPACING)
+        self.calc_layout.setContentsMargins(0, 0, 0, 0)
         
         # Button grid
         button_layout = QGridLayout()
         button_layout.setSpacing(4)
         
-        # 3D Button styling
-        button_3d_style = """
-            QPushButton {
+        # 3D Button styling with adjustable gradient intensity
+        button_3d_style = f"""
+            QPushButton {{
                 border: 1px solid #00000066;
                 border-radius: 5px;
                 font-size: 12pt;
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #4a4a4a, stop:0.5 #3a3a3a, stop:1 #2a2a2a);
+                    stop:0 {adjust_gradient_color('#4a4a4a', GRADIENT_INTENSITY)}, 
+                    stop:0.5 {adjust_gradient_color('#3a3a3a', GRADIENT_INTENSITY)}, 
+                    stop:1 {adjust_gradient_color('#2a2a2a', GRADIENT_INTENSITY)});
                 color: #ffffff;
                 padding: 2px;
-            }
-            QPushButton:hover {
+            }}
+            QPushButton:hover {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #5a5a5a, stop:0.5 #4a4a4a, stop:1 #3a3a3a);
-            }
-            QPushButton:pressed {
+                    stop:0 {adjust_gradient_color('#5a5a5a', GRADIENT_INTENSITY)}, 
+                    stop:0.5 {adjust_gradient_color('#4a4a4a', GRADIENT_INTENSITY)}, 
+                    stop:1 {adjust_gradient_color('#3a3a3a', GRADIENT_INTENSITY)});
+            }}
+            QPushButton:pressed {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #2a2a2a, stop:0.5 #3a3a3a, stop:1 #4a4a4a);
+                    stop:0 {adjust_gradient_color('#2a2a2a', GRADIENT_INTENSITY)}, 
+                    stop:0.5 {adjust_gradient_color('#3a3a3a', GRADIENT_INTENSITY)}, 
+                    stop:1 {adjust_gradient_color('#4a4a4a', GRADIENT_INTENSITY)});
                 border: 1px solid #666666;
-            }
-            QPushButton:disabled {
+            }}
+            QPushButton:disabled {{
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #333333, stop:0.5 #282828, stop:1 #1e1e1e);
+                    stop:0 {adjust_gradient_color('#333333', GRADIENT_INTENSITY)}, 
+                    stop:0.5 {adjust_gradient_color('#282828', GRADIENT_INTENSITY)}, 
+                    stop:1 {adjust_gradient_color('#1e1e1e', GRADIENT_INTENSITY)});
                 color: #666666;
-            }
+            }}
         """
         
         # Button definitions (text, row, col, operation/value)
@@ -456,7 +501,11 @@ class ProgrammerCalculator(QMainWindow):
         
         for text, row, col, action in buttons:
             btn = AnimatedButton(text)
-            btn.setMinimumSize(50, 40)
+            btn.setMinimumSize(BUTTON_MIN_WIDTH, BUTTON_MIN_HEIGHT)
+            btn.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Expanding
+            )
             btn.setStyleSheet(button_3d_style)
             
             if text == "<<":
@@ -473,37 +522,49 @@ class ProgrammerCalculator(QMainWindow):
                 btn.clicked.connect(lambda checked, a=action: self.operation_pressed(a))
                 self.button_map[action] = btn
                 if action in ["add", "sub", "mul", "div"]:
-                    btn.setStyleSheet(button_3d_style + """
-                        QPushButton {
+                    btn.setStyleSheet(button_3d_style + f"""
+                        QPushButton {{
                             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #3a4a56, stop:0.5 #2a3a46, stop:1 #1a2a36);
-                        }
-                        QPushButton:hover {
+                                stop:0 {adjust_gradient_color('#3a4a56', GRADIENT_INTENSITY)}, 
+                                stop:0.5 {adjust_gradient_color('#2a3a46', GRADIENT_INTENSITY)}, 
+                                stop:1 {adjust_gradient_color('#1a2a36', GRADIENT_INTENSITY)});
+                        }}
+                        QPushButton:hover {{
                             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #4a5a66, stop:0.5 #3a4a56, stop:1 #2a3a46);
-                        }
-                        QPushButton:pressed {
+                                stop:0 {adjust_gradient_color('#4a5a66', GRADIENT_INTENSITY)}, 
+                                stop:0.5 {adjust_gradient_color('#3a4a56', GRADIENT_INTENSITY)}, 
+                                stop:1 {adjust_gradient_color('#2a3a46', GRADIENT_INTENSITY)});
+                        }}
+                        QPushButton:pressed {{
                             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #1a2a36, stop:0.5 #2a3a46, stop:1 #3a4a56);
-                        }
+                                stop:0 {adjust_gradient_color('#1a2a36', GRADIENT_INTENSITY)}, 
+                                stop:0.5 {adjust_gradient_color('#2a3a46', GRADIENT_INTENSITY)}, 
+                                stop:1 {adjust_gradient_color('#3a4a56', GRADIENT_INTENSITY)});
+                        }}
                     """)
             elif action == "equals":
                 btn.clicked.connect(self.equals_pressed)
                 self.button_map["equals"] = btn
-                btn.setStyleSheet(button_3d_style + """
-                    QPushButton {
+                btn.setStyleSheet(button_3d_style + f"""
+                    QPushButton {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #2f4a37, stop:0.5 #1f3a27, stop:1 #0f2a17);
+                            stop:0 {adjust_gradient_color('#2f4a37', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#1f3a27', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#0f2a17', GRADIENT_INTENSITY)});
                         font-weight: bold;
-                    }
-                    QPushButton:hover {
+                    }}
+                    QPushButton:hover {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #3f5a47, stop:0.5 #2f4a37, stop:1 #1f3a27);
-                    }
-                    QPushButton:pressed {
+                            stop:0 {adjust_gradient_color('#3f5a47', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#2f4a37', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#1f3a27', GRADIENT_INTENSITY)});
+                    }}
+                    QPushButton:pressed {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #0f2a17, stop:0.5 #1f3a27, stop:1 #2f4a37);
-                    }
+                            stop:0 {adjust_gradient_color('#0f2a17', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#1f3a27', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#2f4a37', GRADIENT_INTENSITY)});
+                    }}
                 """)
             elif action == "clear":
                 btn.clicked.connect(self.clear_all)
@@ -514,70 +575,94 @@ class ProgrammerCalculator(QMainWindow):
             elif action == "mem_store":
                 btn.clicked.connect(self.memory_store)
                 self.button_map["mem_store"] = btn
-                btn.setStyleSheet(button_3d_style + """
-                    QPushButton {
+                btn.setStyleSheet(button_3d_style + f"""
+                    QPushButton {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #5a4a30, stop:0.5 #4a3a20, stop:1 #3a2a10);
-                    }
-                    QPushButton:hover {
+                            stop:0 {adjust_gradient_color('#5a4a30', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#4a3a20', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#3a2a10', GRADIENT_INTENSITY)});
+                    }}
+                    QPushButton:hover {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #6a5a40, stop:0.5 #5a4a30, stop:1 #4a3a20);
-                    }
-                    QPushButton:pressed {
+                            stop:0 {adjust_gradient_color('#6a5a40', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#5a4a30', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#4a3a20', GRADIENT_INTENSITY)});
+                    }}
+                    QPushButton:pressed {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #3a2a10, stop:0.5 #4a3a20, stop:1 #5a4a30);
-                    }
+                            stop:0 {adjust_gradient_color('#3a2a10', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#4a3a20', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#5a4a30', GRADIENT_INTENSITY)});
+                    }}
                 """)
             elif action == "mem_recall":
                 btn.clicked.connect(self.memory_recall)
                 self.button_map["mem_recall"] = btn
-                btn.setStyleSheet(button_3d_style + """
-                    QPushButton {
+                btn.setStyleSheet(button_3d_style + f"""
+                    QPushButton {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #5a4a30, stop:0.5 #4a3a20, stop:1 #3a2a10);
-                    }
-                    QPushButton:hover {
+                            stop:0 {adjust_gradient_color('#5a4a30', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#4a3a20', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#3a2a10', GRADIENT_INTENSITY)});
+                    }}
+                    QPushButton:hover {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #6a5a40, stop:0.5 #5a4a30, stop:1 #4a3a20);
-                    }
-                    QPushButton:pressed {
+                            stop:0 {adjust_gradient_color('#6a5a40', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#5a4a30', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#4a3a20', GRADIENT_INTENSITY)});
+                    }}
+                    QPushButton:pressed {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #3a2a10, stop:0.5 #4a3a20, stop:1 #5a4a30);
-                    }
+                            stop:0 {adjust_gradient_color('#3a2a10', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#4a3a20', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#5a4a30', GRADIENT_INTENSITY)});
+                    }}
                 """)
             elif action == "mem_add":
                 btn.clicked.connect(self.memory_add)
                 self.button_map["mem_add"] = btn
-                btn.setStyleSheet(button_3d_style + """
-                    QPushButton {
+                btn.setStyleSheet(button_3d_style + f"""
+                    QPushButton {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #5a4a30, stop:0.5 #4a3a20, stop:1 #3a2a10);
-                    }
-                    QPushButton:hover {
+                            stop:0 {adjust_gradient_color('#5a4a30', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#4a3a20', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#3a2a10', GRADIENT_INTENSITY)});
+                    }}
+                    QPushButton:hover {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #6a5a40, stop:0.5 #5a4a30, stop:1 #4a3a20);
-                    }
-                    QPushButton:pressed {
+                            stop:0 {adjust_gradient_color('#6a5a40', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#5a4a30', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#4a3a20', GRADIENT_INTENSITY)});
+                    }}
+                    QPushButton:pressed {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #3a2a10, stop:0.5 #4a3a20, stop:1 #5a4a30);
-                    }
+                            stop:0 {adjust_gradient_color('#3a2a10', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#4a3a20', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#5a4a30', GRADIENT_INTENSITY)});
+                    }}
                 """)
             elif action == "mem_sub":
                 btn.clicked.connect(self.memory_sub)
                 self.button_map["mem_sub"] = btn
-                btn.setStyleSheet(button_3d_style + """
-                    QPushButton {
+                btn.setStyleSheet(button_3d_style + f"""
+                    QPushButton {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #5a4a30, stop:0.5 #4a3a20, stop:1 #3a2a10);
-                    }
-                    QPushButton:hover {
+                            stop:0 {adjust_gradient_color('#5a4a30', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#4a3a20', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#3a2a10', GRADIENT_INTENSITY)});
+                    }}
+                    QPushButton:hover {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #6a5a40, stop:0.5 #5a4a30, stop:1 #4a3a20);
-                    }
-                    QPushButton:pressed {
+                            stop:0 {adjust_gradient_color('#6a5a40', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#5a4a30', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#4a3a20', GRADIENT_INTENSITY)});
+                    }}
+                    QPushButton:pressed {{
                         background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                            stop:0 #3a2a10, stop:0.5 #4a3a20, stop:1 #5a4a30);
-                    }
+                            stop:0 {adjust_gradient_color('#3a2a10', GRADIENT_INTENSITY)}, 
+                            stop:0.5 {adjust_gradient_color('#4a3a20', GRADIENT_INTENSITY)}, 
+                            stop:1 {adjust_gradient_color('#5a4a30', GRADIENT_INTENSITY)});
+                    }}
                 """)
             
             button_layout.addWidget(btn, row, col)
@@ -595,17 +680,42 @@ class ProgrammerCalculator(QMainWindow):
         
         self.calc_layout.addLayout(button_layout)
         
-        main_layout.addLayout(self.calc_layout)
+        # Create a container widget for buttons to control its width
+        button_container = QWidget()
+        button_container.setLayout(self.calc_layout)
         
-        # Right side - history panel
+        # Make sure buttons expand to fill available space
+        for i in range(4):  # 4 columns
+            button_layout.setColumnStretch(i, 1)
+        for i in range(8):  # 8 rows
+            button_layout.setRowStretch(i, 1)
+        
+        # Right side - history panel (now next to buttons)
         self.history_panel = HistoryPanel()
         self.history_panel.entry_clicked.connect(self.copy_history_value)
-        main_layout.addWidget(self.history_panel)
+        
+        # Add buttons and history to bottom layout with stretch factors based on ratio
+        # Calculate stretch factors from ratio (e.g., 0.6 means buttons get 60%, history gets 40%)
+        button_stretch = int(BUTTON_HISTORY_RATIO * 100)
+        history_stretch = int((1.0 - BUTTON_HISTORY_RATIO) * 100)
+        
+        bottom_layout.addWidget(button_container, button_stretch)
+        bottom_layout.addWidget(self.history_panel, history_stretch)
+        
+        # Add bottom layout to main layout
+        main_layout.addLayout(bottom_layout)
         
         central.setLayout(main_layout)
         
         # Menu bar
         menubar = self.menuBar()
+        
+        # File menu with quit
+        file_menu = menubar.addMenu("&File")
+        
+        quit_action = QAction("&Quit", self)
+        quit_action.triggered.connect(self.close)
+        file_menu.addAction(quit_action)
         
         # Edit menu
         edit_menu = menubar.addMenu("&Edit")
@@ -640,7 +750,7 @@ class ProgrammerCalculator(QMainWindow):
         
         # Set window properties
         size_w = 700
-        size_h = 580
+        size_h = 480
         self.setMinimumSize(size_w, size_h)
         self.setMaximumSize(size_w, size_h)
         self.resize(size_w, size_h)
@@ -652,6 +762,21 @@ class ProgrammerCalculator(QMainWindow):
         self.update_display()
         self.update_hex_buttons()
         self.update_mode_label()
+    
+    def backspace(self):
+        """Remove the rightmost digit from current_value"""
+        if self.new_number:
+            # If we're starting a new number, backspace does nothing
+            return
+        
+        if self.hex_mode:
+            # In hex mode, divide by 16 to remove rightmost hex digit
+            self.current_value = self.current_value // 16
+        else:
+            # In decimal mode, divide by 10 to remove rightmost digit
+            self.current_value = self.current_value // 10
+        
+        self.update_display()
         
     def flash_display(self, color_hex):
         """Creates a brief color flash on the main display."""
@@ -849,6 +974,7 @@ class ProgrammerCalculator(QMainWindow):
 <tr><td><b>+, -, *, /</b></td><td>Basic operations (numpad supported)</td></tr>
 <tr><td><b>%</b></td><td>Modulo</td></tr>
 <tr><td><b>Enter</b></td><td>Equals</td></tr>
+<tr><td><b>Backspace</b></td><td>Delete last digit</td></tr>
 <tr><td><b>ESC</b></td><td>Clear pending op (1st), entry (2nd)</td></tr>
 <tr><td><b>ESC x3</b></td><td>Clear Memory (within 2 secs)</td></tr>
 <tr><td><b>Delete</b></td><td>Clear all</td></tr>
@@ -930,6 +1056,11 @@ class ProgrammerCalculator(QMainWindow):
 
         if (key == Qt.Key.Key_V and modifiers == Qt.KeyboardModifier.ControlModifier):
             self.paste_from_clipboard()
+            return
+        
+        # Backspace key
+        if key == Qt.Key.Key_Backspace:
+            self.backspace()
             return
 
         # Number keys (including numpad)
