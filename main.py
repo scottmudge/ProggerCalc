@@ -544,6 +544,7 @@ class ProgrammerCalculator(QMainWindow):
             QLabel {
                 color: #00ff00;
                 background: transparent;
+                border: 0px solid #0a0a0a;
             }
         """)
         self.display_layout.addWidget(self.display)
@@ -1108,6 +1109,8 @@ class ProgrammerCalculator(QMainWindow):
                 json.dump(self.config, f, indent=4)
         except Exception as e:
             print(f"Error saving config: {e}")
+        finally:
+            self.update_mode_label()
             
     def show_settings(self):
         """Show settings dialog"""
@@ -1133,6 +1136,7 @@ class ProgrammerCalculator(QMainWindow):
                 self.history_panel.set_history_font(dialog.selected_hist_font)
             
             self.update_display()
+            self.update_mode_label()
     
     def show_shortcuts(self):
         """Show keyboard shortcuts help"""
@@ -1334,6 +1338,20 @@ class ProgrammerCalculator(QMainWindow):
         _str = "HEX" if self.hex_mode else "DEC"
         if self.memory_value != 0:
             _str += f" (M)"
+        _str += "\t"
+         
+        hex_display_mode = self.config.get("hex_display_mode", "relative")
+        size = self.config.get("integer_size", 64)
+        
+        if hex_display_mode == "relative":
+            _str += "REL"
+        else:
+            if hex_display_mode == "signed":
+                _str += "SIG"
+            else:
+                _str += "UNS"
+            _str += f" [{size}]"        
+         
         self.mode_label.setText(_str)
     
     def update_hex_buttons(self):
