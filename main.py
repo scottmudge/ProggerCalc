@@ -12,6 +12,8 @@ import time
 import ctypes
 import base64
 from pathlib import Path
+import os
+from platformdirs import user_config_dir
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QPushButton, QLabel, QDialog, QDialogButtonBox,
@@ -20,12 +22,19 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QByteArray, pyqtSignal, QPropertyAnimation, QSequentialAnimationGroup, QPauseAnimation
 from PyQt6.QtGui import QFont, QKeyEvent, QAction, QIcon, QPixmap, QColor, QPalette, QLinearGradient
-import qdarktheme
+try:
+    import qdarktheme
+except ImportError:
+    qdarktheme = None
 from icon import ICON_PNG_BASE64
+import platformdirs
 
 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-    "proggercalc.proggercalc"
+    "tatertech.proggycalc"
 )
+
+APP_NAME = "ProggyCalc"
+APP_AUTHOR = "Tatertech"
 
 # Global constants for UI customization
 BUTTON_MIN_WIDTH = 30  # Minimum button width
@@ -34,6 +43,8 @@ GRADIENT_INTENSITY = 0.65  # Gradient intensity multiplier (0.0 to 2.0, where 1.
 BUTTON_HISTORY_RATIO = 0.385  # Ratio of width for buttons vs history (0.0 to 1.0, where 0.5 is equal split)
 WINDOW_MARGINS = 5  # Margin between window border and contents (in pixels)
 LAYOUT_SPACING = 4  # Spacing between widgets and layouts (in pixels)
+
+CONFIG_DIR = Path(user_config_dir(APP_NAME, APP_AUTHOR))
 
 def icon_from_base64_png(b64: str) -> QIcon:
     raw = base64.b64decode(b64)
@@ -396,7 +407,11 @@ class ProgrammerCalculator(QMainWindow):
             "hex_display_mode": "relative",  # relative, signed, unsigned
             "integer_size": 64  # 8, 16, 32, 64, 128 bits
         }
-        self.config_file = get_app_path() / "config.json"
+        
+        config_path = Path(CONFIG_DIR)
+        self.config_file = Path(CONFIG_DIR) / "config.json"
+        if not config_path.exists():
+            config_path.mkdir(parents=True, exist_ok=True)
 
         # Calculator state
         self.current_value = 0
@@ -407,6 +422,7 @@ class ProgrammerCalculator(QMainWindow):
         
         self.clear_press_count = 0
         self.last_clear_time = 0
+        self.manual_ce_click = False
         
         # Repeat operation state
         self.last_operation = None
@@ -467,7 +483,7 @@ class ProgrammerCalculator(QMainWindow):
     
     def init_ui(self):
         """Initialize the user interface"""
-        self.setWindowTitle("ProggerCalc")
+        self.setWindowTitle("ProggyCalc")
         
         # Central widget and main layout
         central = QWidget()
@@ -629,9 +645,9 @@ class ProgrammerCalculator(QMainWindow):
             # Row 4
             ("1", 4, 0, 1), ("2", 4, 1, 2), ("3", 4, 2, 3), ("+", 4, 3, "add"),
             # Row 5
-            ("0", 5, 0, 0), ("AND", 5, 1, "and"), ("OR", 5, 2, "or"), ("=", 5, 3, "equals"),
+            ("A", 5, 0, "A"), ("B", 5, 1, "B"), ("0", 5, 2, 0), ("=", 5, 3, "equals"),
             # Row 6 - Hex digits
-            ("A", 6, 0, "A"), ("B", 6, 1, "B"), ("C", 6, 2, "C"), ("D", 6, 3, "D"),
+            ("C", 6, 0, "C"), ("D", 6, 1, "D"), ("AND", 6, 2, "and"), ("OR", 6, 3, "or"),
             # Row 7
             ("E", 7, 0, "E"), ("F", 7, 1, "F"), ("XOR", 7, 2, "xor"), ("<<", 7, 3, "lshift"),
         ]
@@ -661,7 +677,7 @@ class ProgrammerCalculator(QMainWindow):
             elif action in ["add", "sub", "mul", "div", "mod", "and", "or", "xor", "lshift"]:
                 btn.clicked.connect(lambda checked, a=action: self.operation_pressed(a))
                 self.button_map[action] = btn
-                if action in ["add", "sub", "mul", "div"]:
+                if action in ["add", "sub", "mul", "div", "mod"]:
                     btn.setStyleSheet(button_3d_style + f"""
                         QPushButton {{
                             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
@@ -710,7 +726,10 @@ class ProgrammerCalculator(QMainWindow):
                 btn.clicked.connect(self.clear_all)
                 self.button_map["clear"] = btn
             elif action == "clear_entry":
-                btn.clicked.connect(self.handle_escape)
+                def handle_ce_button():
+                    self.manual_ce_click = True
+                    self.handle_escape()
+                btn.clicked.connect(handle_ce_button)
                 self.button_map["clear_entry"] = btn
             elif action == "mem_store":
                 btn.clicked.connect(self.memory_store)
@@ -1181,28 +1200,37 @@ class ProgrammerCalculator(QMainWindow):
             
     def memory_add(self):
         """Add current to memory"""
+        if self.memory_value == 0:
+            self.memory_store()
+            return
         self.memory_value += self.current_value
         self.new_number = True
+        self.flash_display("#24557E")
         
     def memory_sub(self):
         """Subtract current from memory"""
         self.memory_value -= self.current_value
         self.new_number = True
+        self.flash_display("#7E2451")
         
     def check_clear_counter(self):
         """Handle 3x press logic to clear memory"""
         now = time.time()
         
-        if now - self.last_clear_time > 1.0:
+        if now - self.last_clear_time > 0.5:
             self.clear_press_count = 0
             
         self.clear_press_count += 1
         self.last_clear_time = now
         
-        if self.clear_press_count >= 3:
+        if self.clear_press_count >= 3 or self.manual_ce_click:
             self.memory_value = 0
             self.clear_press_count = 0
             self.update_mode_label()
+            self.flash_display("#ff0040")
+        else:
+            self.flash_display("#792424")
+        self.manual_ce_click = False
     
     def flash_button_for_key(self, action_key):
         """Flash a button when its keyboard shortcut is used"""
@@ -1627,7 +1655,8 @@ class ProgrammerCalculator(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    qdarktheme.setup_theme(theme="dark", custom_colors={"background": "#1e1e1e", "foreground": "#c5c5c5"})
+    if qdarktheme is not None:
+        qdarktheme.setup_theme(theme="dark", custom_colors={"background": "#1e1e1e", "foreground": "#c5c5c5"})
     icon = icon_from_base64_png(ICON_PNG_BASE64)
     app.setWindowIcon(icon)
     
