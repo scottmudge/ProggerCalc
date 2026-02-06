@@ -481,6 +481,23 @@ class ProgrammerCalculator(QMainWindow):
                     value += range_size
             
             return value
+        
+    def update_text_shadows(self):       
+        mode_shadow = QGraphicsDropShadowEffect()
+        mode_shadow.setBlurRadius(2)          # 0 = Sharp edges (No glow)
+        mode_shadow.setOffset(2.0, 2.0)       # Offset: 4px right, 4px down
+        mode_shadow.setColor(QColor(0, 0, 0)) # Shadow color: Black
+        self.mode_label.setGraphicsEffect(mode_shadow)
+        op_label_shadow = QGraphicsDropShadowEffect()
+        op_label_shadow.setBlurRadius(2)          # 0 = Sharp edges (No glow)
+        op_label_shadow.setOffset(2.0, 2.0)       # Offset: 4px right, 4px down
+        op_label_shadow.setColor(QColor(0, 0, 0)) # Shadow color: Black
+        self.op_label.setGraphicsEffect(op_label_shadow)
+        display_shadow = QGraphicsDropShadowEffect()
+        display_shadow.setBlurRadius(1)          # 0 = Sharp edges (No glow)
+        display_shadow.setOffset(2.0, 4.0)       # Offset: 4px right, 4px down
+        display_shadow.setColor(QColor(0, 0, 0)) # Shadow color: Black
+        self.display.setGraphicsEffect(display_shadow)
     
     def init_ui(self):
         """Initialize the user interface"""
@@ -531,12 +548,6 @@ class ProgrammerCalculator(QMainWindow):
         mode_font.setPointSize(9)
         self.mode_label.setFont(mode_font)
         self.mode_label.setStyleSheet("color: #00ff00; background: transparent; border: 0px solid #0a0a0a;")
-        mode_shadow = QGraphicsDropShadowEffect()
-        mode_shadow.setBlurRadius(2)          # 0 = Sharp edges (No glow)
-        mode_shadow.setOffset(2.0, 2.0)       # Offset: 4px right, 4px down
-        mode_shadow.setColor(QColor(0, 0, 0)) # Shadow color: Black
-        
-        self.mode_label.setGraphicsEffect(mode_shadow)
         info_layout.addWidget(self.mode_label)
         
         info_layout.addStretch()
@@ -549,11 +560,6 @@ class ProgrammerCalculator(QMainWindow):
         self.op_label.setStyleSheet("color: #00ff00; background: transparent; border: 0px solid #0a0a0a;")
         self.op_label.setMaximumHeight(22)
         self.op_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        op_label_shadow = QGraphicsDropShadowEffect()
-        op_label_shadow.setBlurRadius(2)          # 0 = Sharp edges (No glow)
-        op_label_shadow.setOffset(2.0, 2.0)       # Offset: 4px right, 4px down
-        op_label_shadow.setColor(QColor(0, 0, 0)) # Shadow color: Black
-        self.op_label.setGraphicsEffect(op_label_shadow)
         info_layout.addWidget(self.op_label)
         
         self.display_layout.addLayout(info_layout)
@@ -567,11 +573,6 @@ class ProgrammerCalculator(QMainWindow):
         display_font.setWeight(QFont.Weight.Bold)
         self.display.setFont(display_font)
         self.display.setMinimumHeight(60)
-        display_shadow = QGraphicsDropShadowEffect()
-        display_shadow.setBlurRadius(1)          # 0 = Sharp edges (No glow)
-        display_shadow.setOffset(2.0, 4.0)       # Offset: 4px right, 4px down
-        display_shadow.setColor(QColor(0, 0, 0)) # Shadow color: Black
-        self.display.setGraphicsEffect(display_shadow)
         # LCD green glow effect
         self.display.setStyleSheet("""
             QLabel {
@@ -609,6 +610,8 @@ class ProgrammerCalculator(QMainWindow):
         self.calc_layout = QVBoxLayout()
         self.calc_layout.setSpacing(LAYOUT_SPACING)
         self.calc_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.update_text_shadows()
         
         # Button grid
         button_layout = QGridLayout()
@@ -955,7 +958,7 @@ class ProgrammerCalculator(QMainWindow):
         self.update_display()
         
     def flash_display(self, color_hex):
-        """Creates a brief color flash on the main display."""
+        """Creates a brief color flash on the main display."""       
         # Create effect if it doesn't exist, or reuse
         if not hasattr(self, 'display_effect') or self.display_effect is None:
             self.display_effect = QGraphicsColorizeEffect(self.display_frame)
@@ -977,7 +980,13 @@ class ProgrammerCalculator(QMainWindow):
         self.flash_group = QSequentialAnimationGroup()
         self.flash_group.addAnimation(self.anim_in)
         self.flash_group.addAnimation(self.anim_out)
-        self.flash_group.start()
+        self.flash_group.start()       
+        
+        def effect_deleter():
+            self.display_frame.setGraphicsEffect(None)
+            self.display_effect = None
+        
+        self.flash_group.finished.connect(effect_deleter)
         
     def copy_history_value(self, text):
         """Extract result from history string and copy to clipboard in current format"""
@@ -1213,7 +1222,7 @@ class ProgrammerCalculator(QMainWindow):
             self.current_value = self.memory_value
             self.new_number = False
             self.update_display()
-            self.flash_display("#422775") # Purple-ish
+            self.flash_display("#603CA1") # Purple-ish
             
     def memory_add(self):
         """Add current to memory"""
