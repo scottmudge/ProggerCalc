@@ -10,7 +10,7 @@ ProggyCalc is a programming and reverse-engineering focused calculator focused o
 
 ## Screenshot
 
-<insert>
+![ProggyCalc Screenshot](https://raw.githubusercontent.com/scottmudge/ProggyCalc/refs/heads/master/assets/screenshot.png)
 
 ## Key features:
 
